@@ -5,9 +5,6 @@ Parameters:
   DBClusterIdentifier:
     Type: String
 
-  test:
-    Type: String
-
 Resources: 
   AuroraClusterControlRole:
     Type: AWS::IAM::Role
@@ -39,10 +36,9 @@ Resources:
       Code:
         ZipFile: |
           import boto3
-          import os
 
           rds = boto3.client('rds')
-          clusters = rds.describe_db_clusters(DBClusterIdentifier=os.environ['DB_CLUSTER_IDENTIFIER'])
+          clusters = rds.describe_db_clusters()
 
           def lambda_handler(event, context):
             for cluster in clusters['DBClusters']:
@@ -50,7 +46,6 @@ Resources:
               if (cluster['Status'] == 'stopped'):
                 try:
                     GetTags=rds.list_tags_for_resource(ResourceName=cluster['DBClusterArn'])['TagList']
-                    print(GetTags)
                     for tags in GetTags:
                       if(tags['Key'] == 'autostart' and tags['Value'] == 'yes'):
                         result = rds.start_db_cluster(DBClusterIdentifier=cluster['DBClusterIdentifier'])
@@ -61,9 +56,7 @@ Resources:
 
           if __name__ == "__main__":
               lambda_handler(None, None)
-      Environment:
-        Variables:
-          DB_CLUSTER_IDENTIFIER: !Ref DBClusterIdentifier
+
       FunctionName: aurora-start-function
       Handler: index.lambda_handler
       MemorySize: 128
@@ -80,10 +73,9 @@ Resources:
       Code:
         ZipFile: |
           import boto3
-          import os
 
           rds = boto3.client('rds')
-          clusters = rds.describe_db_clusters(DBClusterIdentifier=os.environ['DB_CLUSTER_IDENTIFIER'])
+          clusters = rds.describe_db_clusters()
 
           def lambda_handler(event, context):
             for cluster in clusters['DBClusters']:
@@ -104,9 +96,7 @@ Resources:
 
           if __name__ == "__main__":
               lambda_handler(None, None)
-      Environment:
-        Variables:
-          DB_CLUSTER_IDENTIFIER: !Ref DBClusterIdentifier
+              
       FunctionName: aurora-stop-function
       Handler: index.lambda_handler
       MemorySize: 128
@@ -131,7 +121,7 @@ Resources:
     Type: AWS::Events::Rule
     Properties: 
       Description: "Aurora Cluster Auto Stop Schedule"
-      ScheduleExpression: !Ref test
+      ScheduleExpression: cron(30 11 ? * SAT *)
       State: "ENABLED"
       Targets: 
         - Arn: !GetAtt  AuroraStopFunction.Arn

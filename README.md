@@ -26,7 +26,9 @@ e,g) `cron(30 10 ? * SAT *)` /毎週土曜日 10:30に実行(UTC)
 | autostop | yes |
 | autostart  | yas |
 
+
 ### deploy.shについて
+実行すると`aurora-control-lambda.yml`を元にスタックが作成されます。
 - 変数`STACK_NAME`が作成されるスタック名になります。
 - 変数`TEMPLATE_FILE`は、テンプレートファイル(aurora-control-klambda.yml)の名前やパスを変更したら変えてください。
 - 実行前に、`$ chmod 755 deploy.yml`を忘れずに。
