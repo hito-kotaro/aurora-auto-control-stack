@@ -1,0 +1,154 @@
+
+AWSTemplateFormatVersion: 2010-09-09
+
+Parameters:
+  DBClusterIdentifier:
+    Type: String
+
+  test:
+    Type: String
+
+Resources: 
+  AuroraClusterControlRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: aurora-cluster-control-role
+          PolicyDocument:
+            Statement:
+              - Effect: Allow
+                Action:
+                - rds:StartDBCluster
+                - rds:StopDBCluster
+                - rds:ListTagsForResource
+                - rds:DescribeDBInstances
+                - rds:StopDBInstance
+                - rds:DescribeDBClusters
+                - rds:StartDBInstance
+                Resource: '*'
+
+  AuroraStartFunction:
+    Type: 'AWS::Lambda::Function'
+    Properties:
+      Code:
+        ZipFile: |
+          import boto3
+          import os
+
+          rds = boto3.client('rds')
+          clusters = rds.describe_db_clusters(DBClusterIdentifier=os.environ['DB_CLUSTER_IDENTIFIER'])
+
+          def lambda_handler(event, context):
+            for cluster in clusters['DBClusters']:
+              print (cluster['Status'])
+              if (cluster['Status'] == 'stopped'):
+                try:
+                    GetTags=rds.list_tags_for_resource(ResourceName=cluster['DBClusterArn'])['TagList']
+                    print(GetTags)
+                    for tags in GetTags:
+                      if(tags['Key'] == 'autostart' and tags['Value'] == 'yes'):
+                        result = rds.start_db_cluster(DBClusterIdentifier=cluster['DBClusterIdentifier'])
+                        print ("Starting cluster: {0}.".format(cluster['DBClusterIdentifier']))
+                except Exception as e:
+                    print ("Cannot start cluster {0}.".format(cluster['DBClusterIdentifier']))
+                    print(e)
+
+          if __name__ == "__main__":
+              lambda_handler(None, None)
+      Environment:
+        Variables:
+          DB_CLUSTER_IDENTIFIER: !Ref DBClusterIdentifier
+      FunctionName: aurora-start-function
+      Handler: index.lambda_handler
+      MemorySize: 128
+      PackageType: Zip
+      ReservedConcurrentExecutions: 1
+      Role: !GetAtt AuroraClusterControlRole.Arn
+      Runtime: python3.8
+      Timeout: 45
+
+
+  AuroraStopFunction:
+    Type: 'AWS::Lambda::Function'
+    Properties:
+      Code:
+        ZipFile: |
+          import boto3
+          import os
+
+          rds = boto3.client('rds')
+          clusters = rds.describe_db_clusters(DBClusterIdentifier=os.environ['DB_CLUSTER_IDENTIFIER'])
+
+          def lambda_handler(event, context):
+            for cluster in clusters['DBClusters']:
+              print (cluster['Status'])
+              if (cluster['Status'] == 'available'):
+                try:
+                    GetTags=rds.list_tags_for_resource(ResourceName=cluster['DBClusterArn'])['TagList']
+                    print(GetTags)
+                    for tags in GetTags:
+                      if(tags['Key'] == 'autostop' and tags['Value'] == 'yes'):
+                        result = rds.stop_db_cluster(DBClusterIdentifier=cluster['DBClusterIdentifier'])
+                        print ("Stopping cluster: {0}.".format(cluster['DBClusterIdentifier']))
+                except Exception as e:
+                    console.log(context.logGroupName);
+                    console.log("Cannot stop cluster {0}.".format(cluster['DBClusterIdentifier']))
+                    print ("Cannot stop cluster {0}.".format(cluster['DBClusterIdentifier']))
+                    print(e)
+
+          if __name__ == "__main__":
+              lambda_handler(None, None)
+      Environment:
+        Variables:
+          DB_CLUSTER_IDENTIFIER: !Ref DBClusterIdentifier
+      FunctionName: aurora-stop-function
+      Handler: index.lambda_handler
+      MemorySize: 128
+      PackageType: Zip
+      ReservedConcurrentExecutions: 1
+      Role: !GetAtt AuroraClusterControlRole.Arn
+      Runtime: python3.8
+      Timeout: 45
+
+
+  AutoStartRule: 
+    Type: AWS::Events::Rule
+    Properties: 
+      Description: "Aurora Cluster Auto Start Schedule"
+      ScheduleExpression: cron(30 10 ? * SAT *)
+      State: "ENABLED"
+      Targets: 
+        - Arn: !GetAtt  AuroraStartFunction.Arn
+          Id: !Ref AuroraStartFunction
+
+  AutoStopRule: 
+    Type: AWS::Events::Rule
+    Properties: 
+      Description: "Aurora Cluster Auto Stop Schedule"
+      ScheduleExpression: !Ref test
+      State: "ENABLED"
+      Targets: 
+        - Arn: !GetAtt  AuroraStopFunction.Arn
+          Id: !Ref AuroraStopFunction
+
+  AuroraStartFunctionPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName: !GetAtt AuroraStartFunction.Arn
+      Principal: events.amazonaws.com
+      SourceArn: !GetAtt AutoStartRule.Arn
+
+  AuroraStopFunctionPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName: !GetAtt AuroraStopFunction.Arn
+      Principal: events.amazonaws.com
+      SourceArn: !GetAtt AutoStopRule.Arn
